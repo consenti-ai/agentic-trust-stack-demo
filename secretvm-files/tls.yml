@@ -1,0 +1,9 @@
+tls:
+  certificates:
+    - certFile: /certs/secret_vm_fullchain.pem
+      keyFile: /certs/secret_vm_private.pem
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /certs/secret_vm_fullchain.pem
+        keyFile: /certs/secret_vm_private.pem

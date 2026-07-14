@@ -1,11 +1,6 @@
 http:
   routers:
     app:
-      # Catch-all instead of a specific Host(...) match: this VM only ever
-      # runs this one app, and SecretVM assigns a new random domain on every
-      # redeploy (no in-place update exists), so pinning to one domain name
-      # meant re-editing this file after every single relaunch. Matching
-      # everything means this file never needs to change again.
       rule: "PathPrefix(`/`)"
       entryPoints:
         - websecure

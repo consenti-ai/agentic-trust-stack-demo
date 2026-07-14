@@ -1,7 +1,7 @@
 http:
   routers:
     app:
-      rule: "Host(`tan-toucan.vm.scrtlabs.com`)"
+      rule: "Host(`coffee-chimpanzee.vm.scrtlabs.com`)"
       entryPoints:
         - websecure
       service: app

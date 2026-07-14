@@ -1,3 +1,17 @@
+http:
+  routers:
+    app:
+      rule: "Host(`tan-toucan.vm.scrtlabs.com`)"
+      entryPoints:
+        - websecure
+      service: app
+      tls: {}
+  services:
+    app:
+      loadBalancer:
+        servers:
+          - url: "http://app:3000"
+
 tls:
   certificates:
     - certFile: /certs/secret_vm_fullchain.pem

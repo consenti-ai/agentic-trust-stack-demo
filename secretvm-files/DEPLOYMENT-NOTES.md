@@ -55,22 +55,26 @@ in the files themselves.
    container. Visible by fetching the live compose back via
    `secretvm-verify --compose --vm <domain>`.
 
-## Known unresolved issue
+## Verifying a deployment (all three checks)
 
-`secretvm-verify --secretvm <domain>` shows `workload_binding_verified: FAIL`
-(`"authentic_mismatch"`) on every deployment tested so far, including a
-completely clean one (current image digest, comment-free compose file,
-current dynamic-config.yml) — ruling out stale content as the cause. CPU
-attestation and TLS binding both pass reliably every time; the machine is
-genuinely a real TDX SecretVM. Confirmed the `"authentic_mismatch"` status is
-reported directly by SecretVM's own attestation service (present in the raw
-`workload` object from their API), not computed client-side by
-secretvm-verify — so this isn't a bug in our verification command, it's
-SecretVM's own backend reporting that the boot-time RTMR3 workload
-measurement doesn't match what `/docker-compose` serves back. Most likely
-candidate: their measurement pipeline doesn't fully account for the
-"Additional Files" tar or the auto-injected `usr/.env` the same way their
-serving pipeline does. Not fixable from this repo — worth raising with
-Secret Network's own docs/support directly, particularly on how
-`--docker-files` is supposed to reconcile against the live
-`/docker-compose` endpoint.
+```
+secretvm-verify --secretvm <domain> --docker-files secretvm-files/additional-files.tar
+```
+
+The `--docker-files` flag is **required** for `workload_binding_verified` to
+pass — without it, `secretvm-verify --secretvm <domain>` alone reports
+`workload_binding_verified: FAIL` / `"authentic_mismatch"`, even against a
+genuinely correct deployment. The RTMR3 workload measurement includes the
+"Additional Files" tar's contribution, which isn't recoverable from the live
+`/docker-compose` endpoint alone — the tool needs the original tar supplied
+out-of-band to reconstruct the expected measurement. (Confirmed with Alex at
+Secret Network, 2026-07-14.)
+
+**Important:** the tar passed to `--docker-files` must be the *exact* one
+that was actually uploaded to that specific VM at deploy time. Since this
+repo's `additional-files.tar` gets rebuilt whenever `dynamic-config.yml`
+changes, verifying an older deployment against a since-rebuilt local tar will
+show a false mismatch — that's what happened testing earlier VMs
+(`tan-toucan`, `turquoise-macaw`, etc.) before this flag's requirement was
+understood. Always verify against the tar version that matches the
+deployment being checked.

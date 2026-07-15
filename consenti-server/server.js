@@ -21,6 +21,14 @@ const { renderAgreementPdf } = require('./pdf');
 const PORT = process.env.PORT || 4090;
 const BLOCKSEE_API_URL = 'https://api.blocksee.co/api/v1/agreements';
 
+// SHA-256 of secretvm-files/additional-files.tar — must be kept in sync if
+// that file's contents ever change. Required for the real TEE workload
+// verification check; the live RTMR3 measurement includes this file's
+// contribution, which isn't recoverable from the deployed /docker-compose
+// endpoint alone. Confirmed with Secret Network directly (see
+// secretvm-files/DEPLOYMENT-NOTES.md).
+const ADDITIONAL_FILES_SHA256 = 'feaf68905c1079e6d91a6c21eb49b44ad1ac59300d182b204596ed49683b1bb8';
+
 function loadBlockseeApiKey() {
   if (process.env.BLOCKSEE_API_KEY) return process.env.BLOCKSEE_API_KEY;
   try {
@@ -129,8 +137,42 @@ async function createRealBlockseeAgreement(counterparty) {
   return data;
 }
 
+// Real Layer 1 TEE attestation — checks THIS running deployment against
+// Secret Network's own attestation service. Fails gracefully (available:
+// false) when not actually running on a SecretVM, e.g. during local dev.
+async function checkOwnAttestation(host) {
+  const { checkSecretVm } = await import('secretvm-verify');
+  const result = await checkSecretVm(
+    host,
+    undefined, // product (AMD only, auto-detected)
+    false, // reloadAmdKds
+    false, // checkProofOfCloud
+    { dockerFilesSha256: ADDITIONAL_FILES_SHA256 },
+  );
+  return {
+    available: true,
+    valid: result.valid,
+    checks: result.checks,
+    platform: result.report?.cpu_type,
+    mr_td: result.report?.cpu?.mr_td,
+    workload: result.report?.workload,
+    tls_fingerprint: result.report?.tls_fingerprint,
+    errors: result.errors,
+  };
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, baseUrl(req));
+
+  // Real TEE attestation check for this exact deployment (Layer 1).
+  if (req.method === 'GET' && url.pathname === '/api/attestation') {
+    try {
+      const result = await checkOwnAttestation(req.headers.host);
+      return send(res, 200, result);
+    } catch (err) {
+      return send(res, 200, { available: false, reason: err.message });
+    }
+  }
 
   // Discovery doc — always 200, describes what agreement is required.
   if (req.method === 'GET' && url.pathname === '/.well-known/agreements.json') {

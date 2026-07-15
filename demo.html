@@ -502,27 +502,62 @@ async function startDemo() {
   q('overlay').classList.add('gone');
   startTimer();
 
-  // ── 1. TEE Boot ─────────────────────────────── (narrated)
+  // ── 1. TEE Boot — LIVE when actually deployed on a SecretVM ──
+  // /api/attestation calls the real secretvm-verify SDK against this exact
+  // deployment. Falls back to narration when not running on real TEE
+  // hardware (e.g. local dev), rather than faking a pass.
   layer(1);
-  msg('sMsgs','s','<span style="color:#8B5CF6;font-family:var(--mono);font-size:11px">⚙ SECRET NETWORK TEE INITIALIZING</span><br>image_hash: sha256:4f2a3b1c9e8d7f6a...<br>enclave_id: 0x8E4FA2C1...<br><span style="color:#10B981">attestation: VALID ✓</span>',true);
+  msg('sMsgs','s','<span style="color:#8B5CF6;font-family:var(--mono);font-size:11px">⚙ SECRET NETWORK TEE — VERIFYING ATTESTATION</span><br>Querying secretvm-verify against this deployment...',true);
 
-  await sleep(800); if (cancelled) return;
-  q('teeBadge').classList.add('on');
-  ev(1,'Secret Network · TEE Attestation',
-    '<span class="hi">image_hash:</span> sha256:4f2a3b1c9e8d...<br>'
-    +'<span class="hi">enclave_id:</span> 0x8E4FA2C1B3D5...<br>'
-    +'<span class="hi">node_count:</span> 17 validators<br>'
-    +'<span class="ok">status: ATTESTED ✓</span>'
-  );
+  let attestation = null;
+  try {
+    attestation = await fetch('/api/attestation').then(r => r.json());
+  } catch (e) {
+    attestation = { available: false, reason: e.message };
+  }
+  if (cancelled) return;
 
-  await sleep(600); if (cancelled) return;
-  typing('sMsgs','sT1');
+  if (attestation.available && attestation.valid) {
+    q('teeBadge').classList.add('on');
+    const mrTd = attestation.mr_td ? attestation.mr_td.slice(0, 24) + '...' : 'unknown';
+    const tlsFp = attestation.tls_fingerprint ? attestation.tls_fingerprint.slice(0, 24) + '...' : 'unknown';
+    const wl = attestation.workload || {};
 
-  await sleep(1400); if (cancelled) return;
-  rmTyping('sT1');
-  msg('sMsgs','s',
-    'Blocksee Sales Agent online. I\'m running inside a Secret Network TEE — my code hash is independently verifiable by any third party. Every action I take is tamper-evident by construction.'
-  );
+    ev(1,'Secret Network · Genuine Intel TDX Machine (LIVE)',
+      `<span class="hi">platform:</span> ${attestation.platform}<br>`
+      +`<span class="hi">mr_td:</span> ${mrTd}<br>`
+      +`<span class="ok">cpu_quote_verified: ${attestation.checks.cpu_quote_verified} ✓</span>`
+    );
+    ev(1,'Secret Network · Verified Workload (LIVE)',
+      `<span class="hi">status:</span> ${wl.status}<br>`
+      +`<span class="hi">template:</span> ${wl.template_name} (${wl.artifacts_ver})<br>`
+      +`<span class="ok">workload_binding_verified: ${attestation.checks.workload_binding_verified} ✓</span>`
+    );
+    ev(1,'Secret Network · TLS Binding (LIVE)',
+      `<span class="hi">tls_fingerprint:</span> ${tlsFp}<br>`
+      +`<span class="ok">tls_binding_verified: ${attestation.checks.tls_binding_verified} ✓</span>`
+    );
+
+    await sleep(600); if (cancelled) return;
+    typing('sMsgs','sT1');
+    await sleep(1000); if (cancelled) return;
+    rmTyping('sT1');
+    msg('sMsgs','s',
+      'Blocksee Sales Agent online. Running inside a real Secret Network TEE, verified live via secretvm-verify — not narrated. Any counterparty can run the same check independently.'
+    );
+  } else {
+    ev(1,'Secret Network · Attestation unavailable',
+      `<span class="warn">Not running on a verifiable SecretVM.</span><br>`
+      +`${attestation.reason || (attestation.errors || []).join('; ') || 'No attestation service reachable.'}`
+    );
+    await sleep(600); if (cancelled) return;
+    typing('sMsgs','sT1');
+    await sleep(1400); if (cancelled) return;
+    rmTyping('sT1');
+    msg('sMsgs','s',
+      'Blocksee Sales Agent online (local/dev mode — not deployed on SecretVM right now, so this layer is narrated rather than cryptographically verified).'
+    );
+  }
 
   // ── 2. Buyer Arrives ──────────────────────────
   await sleep(1200); if (cancelled) return;

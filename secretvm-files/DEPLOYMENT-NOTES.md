@@ -1,21 +1,43 @@
 # SecretVM deployment notes
 
-`docker-compose-secretvm.yaml` and `dynamic-config.yml` (inside `additional-files.tar`)
-must both stay comment-free. Every previous version with comments — even
-just documentation — caused the SecretVM dashboard's Launch button to fail
-with `Docker Compose Update failed. r.get is not a function`. The dashboard
-appears to do some lightweight/non-YAML-library parsing of the pasted text
-(possibly for syntax highlighting), and comments containing nested quotes or
-backticks reliably broke it. Keep any explanatory notes here instead, never
-in the files themselves.
+`docker-compose-secretvm.yaml` must stay comment-free. Every previous
+version with comments — even just documentation — caused the SecretVM
+dashboard's Launch button to fail with `Docker Compose Update failed. r.get
+is not a function`. The dashboard appears to do some lightweight/non-YAML-
+library parsing of the pasted text (possibly for syntax highlighting), and
+comments reliably broke it. Keep any explanatory notes here instead, never
+in the file itself.
 
-## Why the compose file looks like this
+## Update 2026-07-18: dropped the Additional Files tar entirely
 
-1. **No top-level `configs:` block.** An early version put Traefik's TLS
-   config there — same `r.get is not a function` crash as the comment issue
-   above, but from the YAML feature itself, not comments. Fixed by moving the
-   TLS + routing config into `dynamic-config.yml`, delivered via the
-   "Additional Files (.tar)" upload instead.
+Compared our compose file against Certisyn's own real, working deployment
+(`plum-cicada.vm.scrtlabs.com`, fetched live via `secretvm-verify --compose
+--vm <domain>` — a public endpoint) and found they use a top-level
+`configs:` block with the TLS/routing config inline, no separate Additional
+Files tar at all — the **exact same feature that crashed our dashboard**
+weeks ago. Their version has no comments anywhere in it. Best explanation:
+it was the **comments**, not the `configs:` feature itself, that broke the
+dashboard parser — we happened to have both in the same file when we first
+hit the crash, and wrongly attributed it to `configs:` alone.
+
+`docker-compose-secretvm.yaml` now uses this same pattern: a top-level
+`configs:` block defines Traefik's TLS store and routing rule inline, no
+`dynamic-config.yml` / `additional-files.tar` upload needed. This also means
+`secretvm-verify` no longer needs `--docker-files` — same as Certisyn's own
+deployment, which passes all three checks with zero extra flags. `server.js`
+no longer passes `dockerFilesSha256` to `checkSecretVm()`.
+
+**Not yet confirmed working on our own dashboard** — this is prep for the
+next deployment, not yet tested end-to-end. If the dashboard crash somehow
+recurs even without comments, the tar-based fallback (kept in
+`secretvm-files/additional-files.tar` + `dynamic-config.yml` for now, not yet
+deleted) is the proven-working alternative — see below.
+
+## Fallback: the old tar-based approach (if configs: ever breaks again)
+
+1. **No top-level `configs:` block.** Move Traefik's TLS + routing config
+   into `dynamic-config.yml`, delivered via the "Additional Files (.tar)"
+   upload instead of inline in the compose file.
 
 2. **No `/var/run/docker.sock` mount, no `--providers.docker=true`.**
    Traefik originally used Docker-label-based dynamic discovery, which needs
@@ -57,24 +79,22 @@ in the files themselves.
 
 ## Verifying a deployment (all three checks)
 
+**New `configs:`-based deployments (current approach, no tar):**
+```
+secretvm-verify --secretvm <domain>
+```
+No extra flags needed — same as Certisyn's own deployment.
+
+**Old tar-based deployments (fallback approach, if ever reverted to):**
 ```
 secretvm-verify --secretvm <domain> --docker-files secretvm-files/additional-files.tar
 ```
-
 The `--docker-files` flag is **required** for `workload_binding_verified` to
-pass — without it, `secretvm-verify --secretvm <domain>` alone reports
-`workload_binding_verified: FAIL` / `"authentic_mismatch"`, even against a
-genuinely correct deployment. The RTMR3 workload measurement includes the
-"Additional Files" tar's contribution, which isn't recoverable from the live
-`/docker-compose` endpoint alone — the tool needs the original tar supplied
-out-of-band to reconstruct the expected measurement. (Confirmed with Alex at
-Secret Network, 2026-07-14.)
-
-**Important:** the tar passed to `--docker-files` must be the *exact* one
-that was actually uploaded to that specific VM at deploy time. Since this
-repo's `additional-files.tar` gets rebuilt whenever `dynamic-config.yml`
-changes, verifying an older deployment against a since-rebuilt local tar will
-show a false mismatch — that's what happened testing earlier VMs
-(`tan-toucan`, `turquoise-macaw`, etc.) before this flag's requirement was
-understood. Always verify against the tar version that matches the
-deployment being checked.
+pass in this case — without it, the check reports `FAIL` /
+`"authentic_mismatch"` even against a genuinely correct deployment, since the
+RTMR3 measurement includes the tar's contribution and that's not
+recoverable from the live `/docker-compose` endpoint alone. (Confirmed with
+Alex at Secret Network, 2026-07-14.) The tar passed must be the *exact* one
+uploaded to that specific VM at deploy time — this repo's tar gets rebuilt
+whenever `dynamic-config.yml` changes, so verifying an older tar-based
+deployment against a since-rebuilt local tar shows a false mismatch.

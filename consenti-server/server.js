@@ -39,14 +39,6 @@ const USDC_ADDRESSES = {
 // exists), so polling is the only option.
 const PAYMENT_POLL_INTERVAL_MS = 60 * 1000;
 
-// SHA-256 of secretvm-files/additional-files.tar — must be kept in sync if
-// that file's contents ever change. Required for the real TEE workload
-// verification check; the live RTMR3 measurement includes this file's
-// contribution, which isn't recoverable from the deployed /docker-compose
-// endpoint alone. Confirmed with Secret Network directly (see
-// secretvm-files/DEPLOYMENT-NOTES.md).
-const ADDITIONAL_FILES_SHA256 = 'feaf68905c1079e6d91a6c21eb49b44ad1ac59300d182b204596ed49683b1bb8';
-
 // Certisyn's own SecretVM domain, per Alex @ SCRT Labs (2026-07-15). Like our
 // own domain, this is ephemeral — SecretVM has no in-place update, so it'll
 // change whenever Certisyn redeploys. No docker-files hash needed here: their
@@ -247,13 +239,11 @@ async function checkAndTriggerPayments() {
 // false) when not actually running on a SecretVM, e.g. during local dev.
 async function checkOwnAttestation(host) {
   const { checkSecretVm } = await import('secretvm-verify');
-  const result = await checkSecretVm(
-    host,
-    undefined, // product (AMD only, auto-detected)
-    false, // reloadAmdKds
-    false, // checkProofOfCloud
-    { dockerFilesSha256: ADDITIONAL_FILES_SHA256 },
-  );
+  // No dockerFilesSha256 needed — the new deployment pattern (matching
+  // Certisyn's own working compose) uses a top-level `configs:` block
+  // instead of a separate Additional Files tar, so there's no extra
+  // artifact contributing to the workload measurement to account for.
+  const result = await checkSecretVm(host);
   return {
     available: true,
     valid: result.valid,

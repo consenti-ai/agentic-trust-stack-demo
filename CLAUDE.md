@@ -104,7 +104,7 @@ create_agreement_from_text(
   title: "Blocksee Professional API Access — Acme Corp",
   parties: [
     {"name": "Blocksee (FHBK Technologies Inc)", "email": "forsteric@gmail.com", "is_owner": true},
-    {"name": "Acme Corp (ProcureBot)", "email": "eric@blocksee.co"}
+    {"name": "Acme Corp (ProcureBot)", "email": "jhillier@certisyn.com"}
   ],
   sections: [
     {"heading": "Subscription", "text": "Acme Corp subscribes to Blocksee Professional API access at $60 USD per month, billed monthly, payable in USDC on Polygon."},
@@ -130,7 +130,7 @@ Print the agreement ID and anchor hash when returned. Then announce:
 create_subscription_payment(
   plan: "pro",
   chain: "polygon",
-  buyer_email: "eric@blocksee.co",
+  buyer_email: "jhillier@certisyn.com",
   merchant_order_id: "[use the agreement ID from step 4]"
 )
 ```
@@ -190,7 +190,7 @@ Give this framing:
 - **Certisyn scorecard**: The RC score and scorecard URL are simulated. In production, Certisyn's RC engine ingests attestation data and produces a real Ethereum-anchored scorecard URL.
 - **PayPangea wallet SDK**: The USDC payment in the sales agent uses the blocksee-payments MCP we built, which calls PayPangea's collections API. Full outbound payments require a separate PayPangea API key scoped for sends.
 
-**Always use real email addresses for parties, never fake/nonexistent domains** (e.g. `procurebot@acmecorp.com`). Blocksee's spam filters silently drop signing-invite emails sent to fake domains — the agreement still gets created, but no notification email goes out and there's no visible error. The buying agent's persona can stay fictional ("Acme Corp (ProcureBot)"), but its delivery address must be a real inbox (e.g. `eric@blocksee.co`).
+**Always use real email addresses for parties, never fake/nonexistent domains** (e.g. `procurebot@acmecorp.com`). Blocksee's spam filters silently drop signing-invite emails sent to fake domains — the agreement still gets created, but no notification email goes out and there's no visible error. The buying agent's persona can stay fictional ("Acme Corp (ProcureBot)"), but its delivery address must be a real inbox (currently `jhillier@certisyn.com` — Joel's real address at Certisyn, since their agent is the real counterparty).
 
 ## Demo Mode vs. Live Mode
 

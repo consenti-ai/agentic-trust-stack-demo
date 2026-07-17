@@ -605,9 +605,9 @@ async function startDemo() {
   msg('bMsgs','b','Received 409. Fetching Blocksee API Terms from Consenti discovery endpoint. Evaluating against Acme Corp principal authorization scope...');
 
   // Real email required — Blocksee's spam filters silently drop invites
-  // sent to fake/nonexistent domains (e.g. acmecorp.com), so the buying
-  // agent's persona is fictional but its delivery address must be real.
-  const REAL_PARTY_EMAIL = 'eric@blocksee.co';
+  // sent to fake/nonexistent domains (e.g. acmecorp.com). This is Joel's
+  // real address at Certisyn, since their agent is the actual counterparty.
+  const REAL_PARTY_EMAIL = 'jhillier@certisyn.com';
 
   const blockedRes = await fetch('/api/subscribe', { method: 'POST', headers: { 'X-Party-Email': REAL_PARTY_EMAIL } });
   ev(2,'Consenti · Blocked Attempt (LIVE)', `<span class="warn">HTTP ${blockedRes.status} agreement_required</span> — no prior commitment on file`);

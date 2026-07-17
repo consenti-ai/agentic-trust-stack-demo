@@ -21,6 +21,24 @@ const { renderAgreementPdf } = require('./pdf');
 const PORT = process.env.PORT || 4090;
 const BLOCKSEE_API_URL = 'https://api.blocksee.co/api/v1/agreements';
 
+// PayPangea's collections endpoint has been returning a routing-level 404
+// all along (confirmed: even GET / on api.paypangea.com returns the same
+// body — the path itself is wrong/outdated, not a validation issue). This
+// call is still real and will genuinely attempt payment once both parties
+// sign; it's expected to fail until PayPangea's correct endpoint is found.
+const PAYPANGEA_API_URL = 'https://api.paypangea.com/pay/request-pay-sdk';
+const PAYPANGEA_BASE_URL = 'https://paypangea.com';
+const USDC_ADDRESSES = {
+  ethereum: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+  polygon: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
+};
+
+// How often to poll Blocksee for signature completion on watched agreements.
+// Blocksee has no webhook/callback mechanism (confirmed by probing every
+// plausible REST path and the full agreement object schema — no such field
+// exists), so polling is the only option.
+const PAYMENT_POLL_INTERVAL_MS = 60 * 1000;
+
 // SHA-256 of secretvm-files/additional-files.tar — must be kept in sync if
 // that file's contents ever change. Required for the real TEE workload
 // verification check; the live RTMR3 measurement includes this file's
@@ -53,6 +71,21 @@ function loadBlockseeApiKey() {
 
 const BLOCKSEE_API_KEY = loadBlockseeApiKey();
 
+function loadPayPangeaApiKey() {
+  if (process.env.PAYPANGEA_API_KEY) return process.env.PAYPANGEA_API_KEY;
+  try {
+    const configPath = path.join(os.homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json');
+    const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const key = cfg.mcpServers?.['blocksee-payments']?.env?.PAYPANGEA_API_KEY;
+    if (key) return key;
+  } catch {
+    // fall through
+  }
+  return null;
+}
+
+const PAYPANGEA_API_KEY = loadPayPangeaApiKey();
+
 const OWNER_PARTY = { name: 'Blocksee (FHBK Technologies Inc)', email: 'forsteric@gmail.com', is_owner: true };
 
 const CLAUSES = [
@@ -71,6 +104,13 @@ const GATED_ACTIONS = ['subscription_purchase', 'api_access'];
 
 // email -> { agreement_hash, committed_at }
 const committedParties = new Map();
+
+// agreement_id -> { agreement_id, uuid, party, watching_since, last_checked,
+//                    status, payment_attempted, payment_result }
+// In-memory only — doesn't survive a server restart, same limitation as
+// committedParties above. Fine for a demo; a real deployment would persist
+// this.
+const watchedAgreements = new Map();
 
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
@@ -143,6 +183,63 @@ async function createRealBlockseeAgreement(counterparty) {
     throw new Error(data.message || JSON.stringify(data));
   }
   return data;
+}
+
+// Real (currently broken) PayPangea payment call — see PAYPANGEA_API_URL
+// comment above. Mirrors the request shape from
+// /Users/ericforst/blocksee-payments-mcp/index.js's create_subscription_payment.
+async function attemptPayPangeaPayment(agreement) {
+  if (!PAYPANGEA_API_KEY) {
+    return { attempted: false, success: false, error: 'PAYPANGEA_API_KEY not configured' };
+  }
+  const body = {
+    amount: '60',
+    token: 'USDC',
+    tokenaddress: USDC_ADDRESSES.polygon,
+    chain: 'polygon',
+    title: 'Blocksee Pro — Monthly Subscription',
+    text: 'Full platform access — zero-custody signing, Proof of Understanding, and verification.',
+    merchantid: String(agreement.id),
+  };
+  try {
+    const response = await fetch(PAYPANGEA_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${PAYPANGEA_API_KEY}` },
+      body: JSON.stringify(body),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.code === 400) {
+      return { attempted: true, success: false, error: data.message || JSON.stringify(data) };
+    }
+    return { attempted: true, success: true, payment_url: `${PAYPANGEA_BASE_URL}?tkn=${data.tkn}` };
+  } catch (err) {
+    return { attempted: true, success: false, error: err.message };
+  }
+}
+
+// Polls Blocksee for every agreement we're watching (Blocksee has no
+// webhook/callback mechanism — confirmed by probing every plausible REST
+// path and the full agreement object schema, neither shows any such
+// field). Once both parties have signed, triggers the real PayPangea
+// payment call exactly once per agreement.
+async function checkAndTriggerPayments() {
+  for (const [id, entry] of watchedAgreements) {
+    if (entry.payment_attempted) continue;
+    try {
+      const res = await fetch(`${BLOCKSEE_API_URL}/${id}`, { headers: { 'X-API-Key': BLOCKSEE_API_KEY } });
+      const agreement = await res.json();
+      entry.last_checked = new Date().toISOString();
+      entry.status = agreement.status;
+      const allSigned = Array.isArray(agreement.parties) && agreement.parties.length > 0 && agreement.parties.every((p) => p.signed);
+      if (allSigned) {
+        console.log(`Agreement ${id} fully signed by all parties — triggering PayPangea payment.`);
+        entry.payment_result = await attemptPayPangeaPayment(agreement);
+        entry.payment_attempted = true;
+      }
+    } catch (err) {
+      entry.last_error = err.message;
+    }
+  }
 }
 
 // Real Layer 1 TEE attestation — checks THIS running deployment against
@@ -262,6 +359,17 @@ const server = http.createServer(async (req, res) => {
       return send(res, 502, { error: 'blocksee_agreement_creation_failed', detail: err.message });
     }
 
+    watchedAgreements.set(blockseeAgreement.id, {
+      agreement_id: blockseeAgreement.id,
+      uuid: blockseeAgreement.uuid,
+      party,
+      watching_since: committed_at,
+      last_checked: null,
+      status: blockseeAgreement.status,
+      payment_attempted: false,
+      payment_result: null,
+    });
+
     return send(res, 201, {
       status: 'created',
       agreement_hash,
@@ -269,6 +377,20 @@ const server = http.createServer(async (req, res) => {
       committed_at,
       blocksee_agreement: blockseeAgreement,
     });
+  }
+
+  // Observability into the payment-watch poller — which agreements are
+  // being watched, their last-known signature status, and whether/how
+  // payment was attempted once fully signed.
+  if (req.method === 'GET' && url.pathname === '/api/payments/status') {
+    return send(res, 200, { watched: Array.from(watchedAgreements.values()) });
+  }
+
+  // Manually trigger an immediate poll instead of waiting for the next
+  // scheduled interval — useful for testing/demoing without a 60s wait.
+  if (req.method === 'POST' && url.pathname === '/api/payments/poll-now') {
+    await checkAndTriggerPayments();
+    return send(res, 200, { watched: Array.from(watchedAgreements.values()) });
   }
 
   // Gated demo actions — require prior commitment by the calling party.
@@ -313,8 +435,14 @@ const server = http.createServer(async (req, res) => {
         'GET  /.well-known/agreements/tos-v4.json',
         'POST /api/agreements/commit                 body: { agreement_hash, party: { name, email } } — creates a real Blocksee agreement',
         'POST /api/subscribe | /api/access            header: X-Party-Email  (409 until committed)',
+        'GET  /api/attestation | /api/attestation/certisyn   real TEE attestation, own + Certisyn',
+        'GET  /api/payments/status                    watched agreements + payment-trigger state',
+        'POST /api/payments/poll-now                  force an immediate poll instead of waiting',
       ],
       agreement_hash: AGREEMENT_HASH,
+      payment_polling: PAYPANGEA_API_KEY
+        ? `every ${PAYMENT_POLL_INTERVAL_MS / 1000}s — PAYPANGEA_API_KEY loaded`
+        : `every ${PAYMENT_POLL_INTERVAL_MS / 1000}s — WARNING: no PAYPANGEA_API_KEY found, payment attempts will fail`,
     });
   }
 
@@ -325,4 +453,8 @@ server.listen(PORT, () => {
   console.log(`Consenti demo server listening on http://localhost:${PORT}`);
   console.log(`agreement_hash: ${AGREEMENT_HASH}`);
   console.log(BLOCKSEE_API_KEY ? 'Blocksee API key loaded.' : 'WARNING: no Blocksee API key found — commit will fail.');
+  console.log(PAYPANGEA_API_KEY ? 'PayPangea API key loaded.' : 'WARNING: no PayPangea API key found — payment attempts will fail.');
+  console.log(`Payment-watch poller running every ${PAYMENT_POLL_INTERVAL_MS / 1000}s.`);
 });
+
+setInterval(checkAndTriggerPayments, PAYMENT_POLL_INTERVAL_MS);

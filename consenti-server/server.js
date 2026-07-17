@@ -29,6 +29,14 @@ const BLOCKSEE_API_URL = 'https://api.blocksee.co/api/v1/agreements';
 // secretvm-files/DEPLOYMENT-NOTES.md).
 const ADDITIONAL_FILES_SHA256 = 'feaf68905c1079e6d91a6c21eb49b44ad1ac59300d182b204596ed49683b1bb8';
 
+// Certisyn's own SecretVM domain, per Alex @ SCRT Labs (2026-07-15). Like our
+// own domain, this is ephemeral — SecretVM has no in-place update, so it'll
+// change whenever Certisyn redeploys. No docker-files hash needed here: their
+// compose bakes secrets via `environment:` directly rather than an
+// Additional Files tar, confirmed via a clean `secretvm-verify` pass with no
+// extra flags.
+const CERTISYN_DOMAIN = 'plum-cicada.vm.scrtlabs.com';
+
 function loadBlockseeApiKey() {
   if (process.env.BLOCKSEE_API_KEY) return process.env.BLOCKSEE_API_KEY;
   try {
@@ -161,6 +169,23 @@ async function checkOwnAttestation(host) {
   };
 }
 
+// Real Layer 3 TEE attestation — checks Certisyn's own SecretVM deployment,
+// independent of anything they build to interact with our API.
+async function checkCertisynAttestation() {
+  const { checkSecretVm } = await import('secretvm-verify');
+  const result = await checkSecretVm(CERTISYN_DOMAIN);
+  return {
+    available: true,
+    valid: result.valid,
+    checks: result.checks,
+    platform: result.report?.cpu_type,
+    mr_td: result.report?.cpu?.mr_td,
+    workload: result.report?.workload,
+    tls_fingerprint: result.report?.tls_fingerprint || result.report?.tls_certificate_fingerprint,
+    errors: result.errors,
+  };
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, baseUrl(req));
 
@@ -168,6 +193,16 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && url.pathname === '/api/attestation') {
     try {
       const result = await checkOwnAttestation(req.headers.host);
+      return send(res, 200, result);
+    } catch (err) {
+      return send(res, 200, { available: false, reason: err.message });
+    }
+  }
+
+  // Real TEE attestation check for Certisyn's own deployment (Layer 3).
+  if (req.method === 'GET' && url.pathname === '/api/attestation/certisyn') {
+    try {
+      const result = await checkCertisynAttestation();
       return send(res, 200, result);
     } catch (err) {
       return send(res, 200, { available: false, reason: err.message });

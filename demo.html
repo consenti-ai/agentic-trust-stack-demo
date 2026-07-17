@@ -631,23 +631,48 @@ async function startDemo() {
   const retryRes = await fetch('/api/subscribe', { method: 'POST', headers: { 'X-Party-Email': REAL_PARTY_EMAIL } });
   ev(2,'Consenti · Unblocked (LIVE)', `<span class="ok">HTTP ${retryRes.status} allowed</span> — prior agreement commitment verified`);
 
-  // ── 4. Certisyn Verification ─────────────────── (narrated)
+  // ── 4. Certisyn Verification — LIVE (their own TEE) ───────────
+  // /api/attestation/certisyn checks Certisyn's real SecretVM deployment,
+  // same secretvm-verify pattern as Layer 1. This confirms Certisyn's own
+  // infrastructure is genuinely TEE-backed; it does NOT mean their product
+  // is actively verifying THIS transaction's claims yet — that cross-agent
+  // integration is a separate, still-pending piece. Falls back to narration
+  // (clearly labeled) if their deployment isn't reachable/valid.
   await sleep(1200); if (cancelled) return;
   layer(3);
   q('csBadge').classList.add('on');
-  ev(3,'Certisyn · RC Engine',
-    'Reconciliation Confidence engine scanning agent claims...<br>'
-    +'<span class="tag">TEE ATTESTATION</span> → <span class="ok">VALID</span><br>'
-    +'<span class="tag">CODE PROVENANCE</span> → <span class="ok">VERIFIED</span><br>'
-    +'<span class="tag">CLAIM INTEGRITY</span> → <span class="ok">VERIFIED</span><br>'
-    +'<span class="hi">RC Score:</span> <span class="warn">97 / 100</span><br>'
-    +'Verification State Machine: <span class="ok">APPROVED ✓</span>'
-  );
 
-  await sleep(1400); if (cancelled) return;
-  msg('bMsgs','b',
-    'Certisyn verification complete. Blocksee Sales Agent TEE attestation confirmed valid. Code provenance traceable to signed GitHub commit. RC score 97. Safe to commit to agreement.'
-  );
+  let certisynAttestation = null;
+  try {
+    certisynAttestation = await fetch('/api/attestation/certisyn').then(r => r.json());
+  } catch (e) {
+    certisynAttestation = { available: false, reason: e.message };
+  }
+  if (cancelled) return;
+
+  if (certisynAttestation.available && certisynAttestation.valid) {
+    const wl = certisynAttestation.workload || {};
+    ev(3,'Certisyn · Own TEE Attestation (LIVE)',
+      `<span class="hi">platform:</span> ${certisynAttestation.platform}<br>`
+      +`<span class="hi">workload:</span> ${wl.status} (${wl.template_name})<br>`
+      +`<span class="ok">cpu_quote_verified: ${certisynAttestation.checks.cpu_quote_verified} ✓</span><br>`
+      +`<span class="ok">tls_binding_verified: ${certisynAttestation.checks.tls_binding_verified} ✓</span><br>`
+      +`<span class="ok">workload_binding_verified: ${certisynAttestation.checks.workload_binding_verified} ✓</span>`
+    );
+    await sleep(1400); if (cancelled) return;
+    msg('bMsgs','b',
+      "Certisyn's own infrastructure independently confirmed as a genuine TEE via secretvm-verify — not narrated. (Cross-agent claim verification between Certisyn and this agent is a separate integration, still in progress.)"
+    );
+  } else {
+    ev(3,'Certisyn · Attestation unavailable',
+      `<span class="warn">Could not verify Certisyn's deployment.</span><br>`
+      +`${certisynAttestation.reason || (certisynAttestation.errors || []).join('; ') || 'No attestation service reachable.'}`
+    );
+    await sleep(1400); if (cancelled) return;
+    msg('bMsgs','b',
+      'Certisyn verification step reached, but their deployment could not be independently confirmed right now — narrated for continuity rather than treated as verified.'
+    );
+  }
 
   // ── 5. Blocksee Agreement — LIVE, fully autonomous ──
   // The real PDF + REST call already happened inside the commit request

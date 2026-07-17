@@ -21,12 +21,13 @@ const { renderAgreementPdf } = require('./pdf');
 const PORT = process.env.PORT || 4090;
 const BLOCKSEE_API_URL = 'https://api.blocksee.co/api/v1/agreements';
 
-// PayPangea's collections endpoint has been returning a routing-level 404
-// all along (confirmed: even GET / on api.paypangea.com returns the same
-// body — the path itself is wrong/outdated, not a validation issue). This
-// call is still real and will genuinely attempt payment once both parties
-// sign; it's expected to fail until PayPangea's correct endpoint is found.
-const PAYPANGEA_API_URL = 'https://api.paypangea.com/pay/request-pay-sdk';
+// Found and fixed 2026-07-17: the endpoint was missing the /v1 prefix.
+// PayPangea's real docs (docs.paypangea.com, not previously discoverable —
+// no link from their marketing site) confirm the base URL pattern is
+// https://api.paypangea.com/v1/pay/{endpoint}. The old URL below
+// (without /v1) 404'd for months; this one returns a real 200 with a
+// real payment token.
+const PAYPANGEA_API_URL = 'https://api.paypangea.com/v1/pay/request-pay-sdk';
 const PAYPANGEA_BASE_URL = 'https://paypangea.com';
 const USDC_ADDRESSES = {
   ethereum: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',

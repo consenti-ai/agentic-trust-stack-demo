@@ -732,7 +732,7 @@ async function startDemo() {
       +'Real background poller checks Blocksee every 60s and only calls PayPangea once <b>both</b> parties have signed — this is the live gate, not a script.'
     );
     msg('bMsgs','b',
-      `Payment correctly withheld — agr_${ba.id} requires both signatures before settlement is attempted (checked live just now: ${sigNote}). Once signed, the server detects it automatically within 60s. Separately: PayPangea's own endpoint is still broken, so even a fully-signed agreement won't complete settlement until that's fixed too.`
+      `Payment correctly withheld — agr_${ba.id} requires both signatures before settlement is attempted (checked live just now: ${sigNote}). Once signed, the server detects it automatically within 60s and calls PayPangea for real — that integration is fully working now.`
     );
   } else {
     ev(5,'PayPangea · Payment Gate',
@@ -755,10 +755,10 @@ async function startDemo() {
     }
   });
   ev(3,'Certisyn · Terminal Scorecard',
-    '4 of 5 trust layers verified — Consenti and Blocksee against live systems, not scripted text. Payment settlement outstanding.'
+    '4 of 5 trust layers verified — Consenti and Blocksee against live systems, not scripted text. Payment settlement pending real signatures, not blocked by a broken integration.'
   );
   msg('bMsgs','b',
-    'Certisyn terminal attestation complete. Consenti and Blocksee layers verified against live systems. Payment settlement outstanding.'
+    'Certisyn terminal attestation complete. Consenti and Blocksee layers verified against live systems. Payment ready to settle automatically once both parties sign.'
   );
 
   // ── 8. Complete ────────────────────────────────

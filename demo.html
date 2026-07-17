@@ -700,21 +700,49 @@ async function startDemo() {
     +'<span class="ok">chain: CONFIRMED ✓ (Pangea)</span>'
   );
   msg('sMsgs','s',
-    `Agreement executed and anchored on Pangea chain. agr_${ba.id} is now a legally binding commitment under UETA §14 and ESIGN. Real signing-link emails were sent to both parties.`
+    `Agreement created and anchored on Pangea chain. agr_${ba.id} is hash-sealed, but not yet legally binding — it becomes an executed commitment under UETA §14 and ESIGN only once both parties actually sign. Real signing-link emails were sent to both parties; awaiting their signatures now.`
   );
 
-  // ── 6. Payment ─────────────────────────────────
-  // Not narrated as fake success — the payments integration is genuinely
-  // broken right now, so this reports that honestly instead of a canned win.
+  // ── 6. Payment — gated on real signature status, not scripted ──
+  // Consenti (Layer 2) gates whether a party may ATTEMPT a transaction, by
+  // terms acceptance. It's a separate concern from whether the AGREEMENT is
+  // fully executed. That gate belongs here: the server's real payment-watch
+  // poller checks Blocksee for full signature and only then calls PayPangea
+  // — never narrated as already complete.
   await sleep(1500); if (cancelled) return;
   layer(5);
-  ev(5,'PayPangea · USDC Settlement',
-    '<span class="warn">SKIPPED</span> — payments integration is not currently working in this environment.<br>'
-    +'Not a scripted result; genuinely pending a fix.'
-  );
-  msg('bMsgs','b',
-    'Payment step pending. PayPangea settlement is not yet wired up here — Professional access is not active until that\'s resolved.'
-  );
+
+  let paymentStatus = null;
+  try {
+    const pollRes = await fetch('/api/payments/poll-now', { method: 'POST' });
+    const pollData = await pollRes.json();
+    paymentStatus = (pollData.watched || []).find(w => w.agreement_id === ba.id);
+  } catch (e) {
+    paymentStatus = null;
+  }
+
+  if (paymentStatus) {
+    const sigNote = paymentStatus.status === 'action_required'
+      ? 'not yet signed by either party'
+      : `status: ${paymentStatus.status}`;
+    ev(5,'PayPangea · Payment Gate (LIVE)',
+      `<span class="hi">agr_id:</span> ${paymentStatus.agreement_id}<br>`
+      +`<span class="hi">signature status:</span> ${sigNote}<br>`
+      +`<span class="warn">payment_attempted:</span> ${paymentStatus.payment_attempted}<br>`
+      +'Real background poller checks Blocksee every 60s and only calls PayPangea once <b>both</b> parties have signed — this is the live gate, not a script.'
+    );
+    msg('bMsgs','b',
+      `Payment correctly withheld — agr_${ba.id} requires both signatures before settlement is attempted (checked live just now: ${sigNote}). Once signed, the server detects it automatically within 60s. Separately: PayPangea's own endpoint is still broken, so even a fully-signed agreement won't complete settlement until that's fixed too.`
+    );
+  } else {
+    ev(5,'PayPangea · Payment Gate',
+      '<span class="warn">Could not reach the payment-status endpoint.</span><br>'
+      +'This deployment may be running older code without the payment-watch poller.'
+    );
+    msg('bMsgs','b',
+      'Payment step pending. PayPangea settlement is not yet wired up here — Professional access is not active until that\'s resolved.'
+    );
+  }
 
   // ── 7. Certisyn Terminal Scorecard ────────────
   await sleep(1500); if (cancelled) return;

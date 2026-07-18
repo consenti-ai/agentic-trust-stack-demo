@@ -475,6 +475,7 @@ function ev(l, lbl, html) {
   d.innerHTML = `<div class="ev-lbl">${lbl}</div><div class="ev-body">${html}</div>`;
   c.appendChild(d);
   c.scrollTop = c.scrollHeight;
+  return d;
 }
 
 // ── Timer ─────────────────────────────────────────────────────
@@ -703,38 +704,31 @@ async function startDemo() {
     `Agreement created and anchored on Pangea chain. agr_${ba.id} is hash-sealed, but not yet legally binding — it becomes an executed commitment under UETA §14 and ESIGN only once both parties actually sign. Real signing-link emails were sent to both parties; awaiting their signatures now.`
   );
 
-  // ── 6. Payment — gated on real signature status, not scripted ──
-  // Consenti (Layer 2) gates whether a party may ATTEMPT a transaction, by
-  // terms acceptance. It's a separate concern from whether the AGREEMENT is
-  // fully executed. That gate belongs here: the server's real payment-watch
-  // poller checks Blocksee for full signature and only then calls PayPangea
-  // — never narrated as already complete.
+  // ── 6. Payment — gated on real signature status, LIVE-WATCHED until
+  // resolved. Consenti (Layer 2) gates whether a party may ATTEMPT a
+  // transaction, by terms acceptance — a separate concern from whether the
+  // AGREEMENT is fully executed. That gate belongs here: the real
+  // payment-watch poller checks Blocksee for full signature and only then
+  // calls PayPangea. This step now genuinely WAITS for that to happen
+  // (polling every 10s) instead of narrating a fixed outcome and moving on
+  // — the demo stays open until both parties have actually signed and
+  // settlement has actually been attempted, however long that takes.
   await sleep(1500); if (cancelled) return;
   layer(5);
 
-  let paymentStatus = null;
-  try {
-    const pollRes = await fetch('/api/payments/poll-now', { method: 'POST' });
-    const pollData = await pollRes.json();
-    paymentStatus = (pollData.watched || []).find(w => w.agreement_id === ba.id);
-  } catch (e) {
-    paymentStatus = null;
+  async function checkPayment() {
+    try {
+      const pollRes = await fetch('/api/payments/poll-now', { method: 'POST' });
+      const pollData = await pollRes.json();
+      return (pollData.watched || []).find(w => w.agreement_id === ba.id) || null;
+    } catch (e) {
+      return null;
+    }
   }
 
-  if (paymentStatus) {
-    const sigNote = paymentStatus.status === 'action_required'
-      ? 'not yet signed by either party'
-      : `status: ${paymentStatus.status}`;
-    ev(5,'PayPangea · Payment Gate (LIVE)',
-      `<span class="hi">agr_id:</span> ${paymentStatus.agreement_id}<br>`
-      +`<span class="hi">signature status:</span> ${sigNote}<br>`
-      +`<span class="warn">payment_attempted:</span> ${paymentStatus.payment_attempted}<br>`
-      +'Real background poller checks Blocksee every 60s and only calls PayPangea once <b>both</b> parties have signed — this is the live gate, not a script.'
-    );
-    msg('bMsgs','b',
-      `Payment correctly withheld — agr_${ba.id} requires both signatures before settlement is attempted (checked live just now: ${sigNote}). Once signed, the server detects it automatically within 60s and calls PayPangea for real — that integration is fully working now.`
-    );
-  } else {
+  let paymentStatus = await checkPayment();
+
+  if (!paymentStatus) {
     ev(5,'PayPangea · Payment Gate',
       '<span class="warn">Could not reach the payment-status endpoint.</span><br>'
       +'This deployment may be running older code without the payment-watch poller.'
@@ -742,23 +736,85 @@ async function startDemo() {
     msg('bMsgs','b',
       'Payment step pending. PayPangea settlement is not yet wired up here — Professional access is not active until that\'s resolved.'
     );
+  } else {
+    const gateCard = ev(5,'PayPangea · Payment Gate (LIVE)', '');
+    const gateBody = gateCard.querySelector('.ev-body');
+    function renderGate(ps, note) {
+      const sigNote = ps.status === 'action_required' ? 'not yet signed by either party' : `status: ${ps.status}`;
+      gateBody.innerHTML =
+        `<span class="hi">agr_id:</span> ${ps.agreement_id}<br>`
+        +`<span class="hi">signature status:</span> ${sigNote}<br>`
+        +`<span class="warn">payment_attempted:</span> ${ps.payment_attempted}<br>`
+        +'Real background poller checks Blocksee every 60s and only calls PayPangea once <b>both</b> parties have signed — this is the live gate, not a script.'
+        +(note ? `<br><span class="hi">${note}</span>` : '');
+    }
+    renderGate(paymentStatus);
+    msg('bMsgs','b',
+      `Payment correctly withheld — agr_${ba.id} requires both signatures before settlement is attempted. Watching live now — this will update automatically the moment both parties sign, however long that takes.`
+    );
+
+    let checks = 0;
+    while (!cancelled && !paymentStatus.payment_attempted) {
+      await sleep(10000); if (cancelled) return;
+      const fresh = await checkPayment();
+      if (!fresh) continue;
+      paymentStatus = fresh;
+      checks++;
+      if (!paymentStatus.payment_attempted) {
+        renderGate(paymentStatus, `still watching... (live-checked ${checks}× so far)`);
+      }
+    }
+    if (cancelled) return;
+
+    const pr = paymentStatus.payment_result || {};
+    if (pr.success) {
+      ev(5,'PayPangea · Settlement Confirmed (LIVE)',
+        '<span class="ok">Payment succeeded — real settlement, not scripted.</span><br>'
+        +(pr.payment_url ? `<span class="hi">payment_url:</span> ${pr.payment_url}` : '')
+      );
+      msg('bMsgs','b',
+        `Both parties have now signed agr_${ba.id}. The background poller detected it and PayPangea settlement completed successfully — real payment, triggered automatically.`
+      );
+    } else {
+      ev(5,'PayPangea · Settlement Attempted (LIVE)',
+        '<span class="warn">Both parties signed; the payment call itself failed.</span><br>'
+        +`<span class="hi">error:</span> ${pr.error || 'unknown'}`
+      );
+      msg('bMsgs','b',
+        `Both parties have now signed agr_${ba.id}. The poller correctly detected it and triggered a real PayPangea call — signature detection and triggering worked exactly as designed. Settlement itself returned an error: ${pr.error || 'unknown'}.`
+      );
+    }
   }
 
-  // ── 7. Certisyn Terminal Scorecard ────────────
+  // ── 7. Certisyn Terminal Scorecard — reflects the REAL final outcome ──
   await sleep(1500); if (cancelled) return;
   q('scorecard').classList.add('show');
+  const paymentOk = paymentStatus && paymentStatus.payment_result && paymentStatus.payment_result.success;
+  const paymentDone = paymentStatus && paymentStatus.payment_attempted;
   q('scorecard').querySelectorAll('.sc-row').forEach(row => {
     if (row.querySelector('.sc-k').textContent.trim() === 'Payment') {
       const v = row.querySelector('.sc-v');
-      v.textContent = '⏭ PENDING';
-      v.classList.remove('ok');
+      if (paymentOk) {
+        v.textContent = '✓ CONFIRMED';
+        v.classList.add('ok');
+      } else if (paymentDone) {
+        v.textContent = '✗ FAILED';
+        v.classList.remove('ok');
+      } else {
+        v.textContent = '⏭ PENDING';
+        v.classList.remove('ok');
+      }
     }
   });
   ev(3,'Certisyn · Terminal Scorecard',
-    '4 of 5 trust layers verified — Consenti and Blocksee against live systems, not scripted text. Payment settlement pending real signatures, not blocked by a broken integration.'
+    paymentOk
+      ? 'All 5 trust layers verified — every layer against live systems, not scripted text. Payment genuinely settled.'
+      : '4 of 5 trust layers verified — Consenti and Blocksee against live systems, not scripted text. Payment settlement ' + (paymentDone ? 'attempted and failed — see error above.' : 'pending real signatures, not blocked by a broken integration.')
   );
   msg('bMsgs','b',
-    'Certisyn terminal attestation complete. Consenti and Blocksee layers verified against live systems. Payment ready to settle automatically once both parties sign.'
+    paymentOk
+      ? 'Certisyn terminal attestation complete. All five layers verified against live systems, including real payment settlement.'
+      : 'Certisyn terminal attestation complete. Consenti and Blocksee layers verified against live systems.' + (paymentDone ? ' Payment was attempted and failed.' : ' Payment ready to settle automatically once both parties sign.')
   );
 
   // ── 8. Complete ────────────────────────────────

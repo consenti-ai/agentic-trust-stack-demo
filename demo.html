@@ -768,12 +768,13 @@ async function startDemo() {
 
     const pr = paymentStatus.payment_result || {};
     if (pr.success) {
-      ev(5,'PayPangea · Settlement Confirmed (LIVE)',
-        '<span class="ok">Payment succeeded — real settlement, not scripted.</span><br>'
-        +(pr.payment_url ? `<span class="hi">payment_url:</span> ${pr.payment_url}` : '')
+      ev(5,'PayPangea · Payment Request Created (LIVE)',
+        '<span class="ok">Real payment link generated — not scripted.</span><br>'
+        +(pr.payment_url ? `<span class="hi">payment_url:</span> ${pr.payment_url}<br>` : '')
+        +'A payment can now be made via this link. This demo does not verify on-chain settlement — no webhook or status check confirms the buyer has actually paid it.'
       );
       msg('bMsgs','b',
-        `Both parties have now signed agr_${ba.id}. The background poller detected it and PayPangea settlement completed successfully — real payment, triggered automatically.`
+        `Both parties have now signed agr_${ba.id}. The background poller detected it and PayPangea created a real, payable checkout link automatically. A payment can now be made — this demo does not yet confirm whether it has been.`
       );
     } else {
       ev(5,'PayPangea · Settlement Attempted (LIVE)',
@@ -795,7 +796,7 @@ async function startDemo() {
     if (row.querySelector('.sc-k').textContent.trim() === 'Payment') {
       const v = row.querySelector('.sc-v');
       if (paymentOk) {
-        v.textContent = '✓ CONFIRMED';
+        v.textContent = '✓ REQUESTED';
         v.classList.add('ok');
       } else if (paymentDone) {
         v.textContent = '✗ FAILED';
@@ -808,13 +809,13 @@ async function startDemo() {
   });
   ev(3,'Certisyn · Terminal Scorecard',
     paymentOk
-      ? 'All 5 trust layers verified — every layer against live systems, not scripted text. Payment genuinely settled.'
-      : '4 of 5 trust layers verified — Consenti and Blocksee against live systems, not scripted text. Payment settlement ' + (paymentDone ? 'attempted and failed — see error above.' : 'pending real signatures, not blocked by a broken integration.')
+      ? 'All 5 trust layers verified — every layer against live systems, not scripted text. A real, payable PayPangea link was generated; on-chain settlement is not verified by this demo.'
+      : '4 of 5 trust layers verified — Consenti and Blocksee against live systems, not scripted text. Payment request ' + (paymentDone ? 'attempted and failed — see error above.' : 'pending real signatures, not blocked by a broken integration.')
   );
   msg('bMsgs','b',
     paymentOk
-      ? 'Certisyn terminal attestation complete. All five layers verified against live systems, including real payment settlement.'
-      : 'Certisyn terminal attestation complete. Consenti and Blocksee layers verified against live systems.' + (paymentDone ? ' Payment was attempted and failed.' : ' Payment ready to settle automatically once both parties sign.')
+      ? 'Certisyn terminal attestation complete. All five layers verified against live systems, including a real PayPangea payment link — actual settlement is not tracked by this demo.'
+      : 'Certisyn terminal attestation complete. Consenti and Blocksee layers verified against live systems.' + (paymentDone ? ' Payment was attempted and failed.' : ' Payment ready to be requested automatically once both parties sign.')
   );
 
   // ── 8. Complete ────────────────────────────────

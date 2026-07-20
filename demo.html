@@ -611,7 +611,11 @@ async function startDemo() {
   const REAL_PARTY_EMAIL = 'jhillier@certisyn.com';
 
   const blockedRes = await fetch('/api/subscribe', { method: 'POST', headers: { 'X-Party-Email': REAL_PARTY_EMAIL } });
-  ev(2,'Consenti · Blocked Attempt (LIVE)', `<span class="warn">HTTP ${blockedRes.status} agreement_required</span> — no prior commitment on file`);
+  if (blockedRes.status === 409) {
+    ev(2,'Consenti · Blocked Attempt (LIVE)', `<span class="warn">HTTP ${blockedRes.status} agreement_required</span> — no prior commitment on file`);
+  } else {
+    ev(2,'Consenti · Blocked Attempt (LIVE)', `<span class="hi">HTTP ${blockedRes.status}</span> — this party already committed on this server during an earlier run; nothing to block this time`);
+  }
 
   await sleep(700); if (cancelled) return;
   const commitRes = await fetch('/api/agreements/commit', {

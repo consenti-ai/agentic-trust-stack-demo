@@ -384,6 +384,43 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { watched: Array.from(watchedAgreements.values()) });
   }
 
+  // Re-registers an existing Blocksee agreement with the payment watcher.
+  // watchedAgreements is in-memory only, so a container restart drops
+  // anything not yet resolved — this recovers a specific agreement by ID
+  // afterward. Always starts payment_attempted at false, so only call this
+  // for an agreement you know hasn't already been paid.
+  if (req.method === 'POST' && url.pathname === '/api/payments/watch') {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      return send(res, 400, { error: 'invalid_json' });
+    }
+    const { agreement_id } = body;
+    if (!agreement_id) {
+      return send(res, 400, { error: 'missing_agreement_id' });
+    }
+    let agreement;
+    try {
+      const resp = await fetch(`${BLOCKSEE_API_URL}/${agreement_id}`, { headers: { 'X-API-Key': BLOCKSEE_API_KEY } });
+      if (!resp.ok) throw new Error(`Blocksee returned ${resp.status}`);
+      agreement = await resp.json();
+    } catch (err) {
+      return send(res, 502, { error: 'blocksee_fetch_failed', detail: err.message });
+    }
+    watchedAgreements.set(agreement.id, {
+      agreement_id: agreement.id,
+      uuid: agreement.uuid,
+      party: { name: 'Acme Corp (ProcureBot)', email: 'jhillier@certisyn.com' },
+      watching_since: new Date().toISOString(),
+      last_checked: null,
+      status: agreement.status,
+      payment_attempted: false,
+      payment_result: null,
+    });
+    return send(res, 200, { status: 're-registered', watched: watchedAgreements.get(agreement.id) });
+  }
+
   // Gated demo actions — require prior commitment by the calling party.
   if (req.method === 'POST' && (url.pathname === '/api/subscribe' || url.pathname === '/api/access')) {
     const action = url.pathname === '/api/subscribe' ? 'subscription_purchase' : 'api_access';

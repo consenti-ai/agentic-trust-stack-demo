@@ -97,7 +97,7 @@ Verification State Machine: APPROVED
 
 ### Step 4 — Agreement Execution via Blocksee
 
-**Call the real Blocksee MCP tool here:**
+**Call the real Blocksee MCP tool here, on the `blocksee-staging` connection (Sepolia). Never use the production `blocksee` connection for the demo: it anchors on Ethereum mainnet and costs real ETH.**
 
 ```
 create_agreement_from_text(
@@ -120,7 +120,7 @@ create_agreement_from_text(
 ```
 
 Print the agreement ID and anchor hash when returned. Then announce:
-> "Agreement anchored on Pangea chain. agr_[ID] is a legally binding commitment under UETA §14. Proof of Understanding: 3 comprehension questions generated from material terms."
+> "Agreement created and its hash submitted for anchoring on Ethereum (Sepolia testnet). agr_[ID] becomes a binding commitment under UETA §14 once both parties sign. Proof of Understanding: 3 comprehension questions generated from material terms."
 
 ### Step 5 — Payment via PayPangea
 
@@ -176,11 +176,13 @@ Give this framing:
 
 ## Available MCP Tools (Real)
 
-- `blocksee:create_agreement_from_text` — creates a full agreement with PDF rendering, signature links, and optional PoU
-- `blocksee:create_agreement` — from PDF (custodial) or hash (zero-custody)
-- `blocksee:seal_document` — blockchain-anchors any document
-- `blocksee:verify_hash` — verifies any SHA-256 hash against Blocksee records
-- `blocksee:list_seals` — lists all sealed documents on the account
+The demo uses Blocksee **staging** (`blocksee-staging`), which anchors on Ethereum Sepolia. The production `blocksee` connection is for real agreements only.
+
+- `blocksee-staging:create_agreement_from_text` — creates a full agreement with PDF rendering, signature links, and optional PoU
+- `blocksee-staging:create_agreement` — from PDF (custodial) or hash (zero-custody)
+- `blocksee-staging:seal_document` — blockchain-anchors any document
+- `blocksee-staging:verify_hash` — verifies any SHA-256 hash against Blocksee records
+- `blocksee-staging:list_seals` — lists all sealed documents on the account
 - `blocksee-payments:create_subscription_payment` — generates USDC payment request (Ethereum or Polygon)
 - `blocksee-payments:list_plans` — lists available subscription plans
 

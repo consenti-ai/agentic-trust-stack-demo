@@ -1,8 +1,11 @@
 // Real Consenti protocol server: discovery, 409-gated actions, and commit.
 //
 // LIVE MODE: commit generates a real PDF and POSTs it directly to Blocksee's
-// REST API (api.blocksee.co/api/v1/agreements, multipart file upload) using
-// the same API key configured for the blocksee MCP connector. No relay step
+// REST API (<BLOCKSEE_API_BASE>/api/v1/agreements, multipart file upload).
+// By default that is Blocksee STAGING, which anchors on Ethereum Sepolia:
+// production anchors on Ethereum mainnet, costs real ETH per agreement, and
+// is for real customers, not demo runs. Set BLOCKSEE_API_BASE to
+// https://api.blocksee.co only on purpose. No relay step
 // needed — the real agreement is created synchronously within the commit
 // request and returned in the response.
 //
@@ -19,7 +22,10 @@ const os = require('os');
 const { renderAgreementPdf } = require('./pdf');
 
 const PORT = process.env.PORT || 4090;
-const BLOCKSEE_API_URL = 'https://api.blocksee.co/api/v1/agreements';
+const BLOCKSEE_API_BASE = (process.env.BLOCKSEE_API_BASE || 'https://api-staging.blocksee.co').replace(/\/+$/, '');
+const BLOCKSEE_API_URL = `${BLOCKSEE_API_BASE}/api/v1/agreements`;
+const BLOCKSEE_IS_PRODUCTION = BLOCKSEE_API_BASE === 'https://api.blocksee.co';
+const BLOCKSEE_NETWORK = BLOCKSEE_IS_PRODUCTION ? 'Ethereum mainnet' : 'Ethereum Sepolia testnet';
 
 // Found and fixed 2026-07-17: the endpoint was missing the /v1 prefix.
 // PayPangea's real docs (docs.paypangea.com, not previously discoverable —
@@ -50,12 +56,20 @@ const CERTISYN_DOMAIN = 'plum-cicada.vm.scrtlabs.com';
 
 function loadBlockseeApiKey() {
   if (process.env.BLOCKSEE_API_KEY) return process.env.BLOCKSEE_API_KEY;
+  // On a Mac, reuse the key of the matching Claude Desktop connection:
+  // "blocksee-staging" for staging, "blocksee" for production. Supports both
+  // a literal header ("X-API-Key: bsk_...") and the env form
+  // ("X-API-Key:${VAR}" with the key in the entry's env block).
   try {
     const configPath = path.join(os.homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json');
     const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    const args = cfg.mcpServers?.blocksee?.args || [];
-    const header = args.find((a) => a.startsWith('X-API-Key:'));
-    if (header) return header.split('X-API-Key: ')[1].trim();
+    const entry = cfg.mcpServers?.[BLOCKSEE_IS_PRODUCTION ? 'blocksee' : 'blocksee-staging'];
+    const header = (entry?.args || []).find((a) => /^X-API-Key:/i.test(a));
+    if (!header) return null;
+    let value = header.replace(/^X-API-Key:\s*/i, '').trim();
+    const ref = value.match(/^\$\{(\w+)\}$/);
+    if (ref) value = entry.env?.[ref[1]] || '';
+    return value || null;
   } catch {
     // fall through
   }
@@ -367,6 +381,7 @@ const server = http.createServer(async (req, res) => {
       party,
       committed_at,
       blocksee_agreement: blockseeAgreement,
+      blocksee_network: BLOCKSEE_NETWORK,
     });
   }
 
@@ -455,6 +470,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && url.pathname === '/') {
     return send(res, 200, {
       service: 'consenti-demo-server',
+      blocksee: `${BLOCKSEE_API_BASE} (anchors on ${BLOCKSEE_NETWORK})`,
       mode: BLOCKSEE_API_KEY
         ? 'LIVE — commit creates a real Blocksee agreement synchronously via the REST API'
         : 'LIVE (misconfigured) — no Blocksee API key found, commit will fail',
@@ -480,6 +496,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`Consenti demo server listening on http://localhost:${PORT}`);
   console.log(`agreement_hash: ${AGREEMENT_HASH}`);
+  console.log(`Blocksee: ${BLOCKSEE_API_BASE} (anchors on ${BLOCKSEE_NETWORK})`);
   console.log(BLOCKSEE_API_KEY ? 'Blocksee API key loaded.' : 'WARNING: no Blocksee API key found — commit will fail.');
   console.log(PAYPANGEA_API_KEY ? 'PayPangea API key loaded.' : 'WARNING: no PayPangea API key found — payment attempts will fail.');
   console.log(`Payment-watch poller running every ${PAYMENT_POLL_INTERVAL_MS / 1000}s.`);

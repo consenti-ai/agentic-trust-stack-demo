@@ -697,15 +697,17 @@ async function startDemo() {
   await sleep(900); if (cancelled) return;
   rmTyping('sT3');
   const ba = commitData.blocksee_agreement;
+  const network = commitData.blocksee_network || 'Ethereum';
   ev(4,'Blocksee · Agreement Created (LIVE)',
     '<span class="hi">fn:</span> POST /api/v1/agreements (real PDF, multipart)<br>'
     +`<span class="hi">agr_id:</span> ${ba.id}<br>`
     +`<span class="hi">uuid:</span> ${ba.uuid}<br>`
-    +`<span class="hi">anchor_tx:</span> ${ba.blockchain_tx_hash}<br>`
-    +'<span class="ok">chain: CONFIRMED ✓ (Pangea)</span>'
+    +(ba.blockchain_tx_hash
+      ? `<span class="hi">anchor_tx:</span> ${ba.blockchain_tx_hash}<br><span class="ok">chain: CONFIRMED ✓ (${network})</span>`
+      : `<span class="hi">anchor:</span> document hash submitted to ${network}; the transaction confirms within a few minutes`)
   );
   msg('sMsgs','s',
-    `Agreement created and anchored on Pangea chain. agr_${ba.id} is hash-sealed, but not yet legally binding — it becomes an executed commitment under UETA §14 and ESIGN only once both parties actually sign. Real signing-link emails were sent to both parties; awaiting their signatures now.`
+    `Agreement created; its hash is being anchored on ${network}. agr_${ba.id} is hash-sealed, but not yet legally binding — it becomes an executed commitment under UETA §14 and ESIGN only once both parties actually sign. Real signing-link emails were sent to both parties; awaiting their signatures now.`
   );
 
   // ── 6. Payment — gated on real signature status, LIVE-WATCHED until
